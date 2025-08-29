@@ -5,12 +5,13 @@ import { CreateRoom } from './components/CreateRoom';
 import { JoinRoom } from './components/JoinRoom';
 import { QuestionCreator } from './components/QuestionCreator';
 import { GameRoom } from './components/GameRoom';
+import { VictoryScreen } from './components/VictoryScreen';
 
-type AppState = 'home' | 'create-room' | 'join-room' | 'question-creator' | 'waiting-room' | 'game-room';
+type AppState = 'home' | 'create-room' | 'join-room' | 'question-creator' | 'waiting-room' | 'game-room' | 'victory';
 
 function AppContent() {
   const [currentState, setCurrentState] = useState<AppState>('home');
-  const { leaveRoom } = useGame();
+  const { leaveRoom, state } = useGame();
 
   const handleCreateRoom = () => {
     setCurrentState('create-room');
@@ -33,6 +34,16 @@ function AppContent() {
   };
 
   const handleGameEnd = () => {
+    // Check if game finished and show victory screen
+    if (state.currentRoom?.isGameFinished && state.currentRoom?.players.length > 0) {
+      setCurrentState('victory');
+    } else {
+      leaveRoom();
+      setCurrentState('home');
+    }
+  };
+
+  const handleVictoryContinue = () => {
     leaveRoom();
     setCurrentState('home');
   };
@@ -68,6 +79,21 @@ function AppContent() {
     
     case 'game-room':
       return <GameRoom onGameEnd={handleGameEnd} />;
+    
+    case 'victory':
+      if (state.currentRoom?.players) {
+        const winner = state.currentRoom.players.reduce((prev, current) => 
+          prev.score > current.score ? prev : current
+        );
+        return (
+          <VictoryScreen 
+            winner={winner}
+            allPlayers={state.currentRoom.players}
+            onContinue={handleVictoryContinue}
+          />
+        );
+      }
+      return <Home onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} />;
     
     default:
       return <Home onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} />;
