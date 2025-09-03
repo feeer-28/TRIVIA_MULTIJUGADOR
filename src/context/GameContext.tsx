@@ -171,45 +171,35 @@ export function GameProvider({ children }: GameProviderProps) {
   };
 
   const leaveRoom = () => {
-    if (state.currentPlayer) {
-      socketService.leaveRoom(state.currentPlayer.id);
-      dispatch({ type: 'RESET_GAME' });
-    }
+    socketService.leaveRoom();
+    dispatch({ type: 'RESET_GAME' });
   };
 
   const addQuestion = (question: Omit<Question, 'id'>) => {
-    if (state.currentPlayer) {
-      const result = socketService.addQuestion(state.currentPlayer.id, question);
-      if (!result.success) {
-        alert(result.error || 'Error al agregar pregunta');
-      }
+    const result = socketService.addQuestion(question);
+    if (!result.success) {
+      alert(result.error || 'Error al agregar pregunta');
     }
   };
 
   const startQuestion = () => {
-    if (state.currentPlayer) {
-      const result = socketService.startQuestion(state.currentPlayer.id);
-      if (!result.success) {
-        alert(result.error || 'Error al iniciar pregunta');
-      }
+    const result = socketService.startQuestion();
+    if (!result.success) {
+      alert(result.error || 'Error al iniciar pregunta');
     }
   };
 
   const endQuestion = () => {
-    if (state.currentPlayer) {
-      const result = socketService.endQuestion(state.currentPlayer.id);
-      if (!result.success) {
-        alert(result.error || 'Error al finalizar pregunta');
-      }
+    const result = socketService.endQuestion();
+    if (!result.success) {
+      alert(result.error || 'Error al finalizar pregunta');
     }
   };
 
   const submitAnswer = (selectedOption: number) => {
-    if (state.currentPlayer) {
-      const result = socketService.submitAnswer(state.currentPlayer.id, selectedOption);
-      if (!result.success) {
-        alert(result.error || 'Error al enviar respuesta');
-      }
+    const result = socketService.submitAnswer(selectedOption);
+    if (!result.success) {
+      alert(result.error || 'Error al enviar respuesta');
     }
   };
 

@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import type { Room, Player, Question, Answer, WebSocketMessage } from '../types';
+import type { Room, Question, WebSocketMessage } from '../types';
 
 class SocketService {
   private static instance: SocketService;
@@ -157,13 +157,13 @@ class SocketService {
   }
 
   // Leave room
-  leaveRoom(playerId: string): void {
+  leaveRoom(): void {
     if (!this.socket) return;
     this.socket.emit('leaveRoom');
   }
 
   // Add question (moderator only)
-  addQuestion(playerId: string, question: Omit<Question, 'id'>): { success: boolean; error?: string } {
+  addQuestion(question: Omit<Question, 'id'>): { success: boolean; error?: string } {
     if (!this.socket) {
       return { success: false, error: 'Not connected to server' };
     }
@@ -173,7 +173,7 @@ class SocketService {
   }
 
   // Start question (moderator only)
-  startQuestion(playerId: string): { success: boolean; error?: string } {
+  startQuestion(): { success: boolean; error?: string } {
     if (!this.socket) {
       return { success: false, error: 'Not connected to server' };
     }
@@ -183,7 +183,7 @@ class SocketService {
   }
 
   // Submit answer
-  submitAnswer(playerId: string, selectedOption: number): { success: boolean; error?: string } {
+  submitAnswer(selectedOption: number): { success: boolean; error?: string } {
     if (!this.socket) {
       return { success: false, error: 'Not connected to server' };
     }
@@ -193,7 +193,7 @@ class SocketService {
   }
 
   // End current question (moderator only)
-  endQuestion(playerId: string): { success: boolean; error?: string } {
+  endQuestion(): { success: boolean; error?: string } {
     if (!this.socket) {
       return { success: false, error: 'Not connected to server' };
     }
