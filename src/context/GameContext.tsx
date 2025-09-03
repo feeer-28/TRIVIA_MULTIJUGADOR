@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { GameState, Player, Room, Question, WebSocketMessage } from '../types';
-import { websocketService } from '../services/websocketService';
+import { socketService } from '../services/socketService';
 
 interface GameContextType {
   state: GameState;
@@ -83,21 +83,34 @@ export function GameProvider({ children }: GameProviderProps) {
   const [state, dispatch] = useReducer(gameReducer, initialState);
 
   useEffect(() => {
-    if (state.currentPlayer) {
-      websocketService.subscribe(state.currentPlayer.id, handleWebSocketMessage);
-      
-      return () => {
-        if (state.currentPlayer) {
-          websocketService.unsubscribe(state.currentPlayer.id);
-        }
-      };
-    }
-  }, [state.currentPlayer]);
+    // Connect to socket server on mount
+    socketService.connect();
+    
+    // Subscribe with a generic ID initially
+    const subscriptionId = 'game-context';
+    socketService.subscribe(subscriptionId, handleWebSocketMessage);
+    
+    return () => {
+      socketService.unsubscribe(subscriptionId);
+      socketService.disconnect();
+    };
+  }, []);
 
   const handleWebSocketMessage = (message: WebSocketMessage) => {
     switch (message.type) {
       case 'ROOM_CREATED':
-        dispatch({ type: 'SET_ROOM', payload: message.payload.room });
+        const room = message.payload.room;
+        dispatch({ type: 'SET_ROOM', payload: room });
+        
+        // Set current player from room data
+        const currentPlayerId = socketService.getCurrentPlayerId();
+        if (currentPlayerId) {
+          const player = room.players.find(p => p.id === currentPlayerId);
+          if (player) {
+            const isModerator = player.id === room.moderatorId;
+            dispatch({ type: 'SET_PLAYER', payload: { player, isModerator } });
+          }
+        }
         break;
       case 'PLAYER_JOINED':
         dispatch({ type: 'SET_ROOM', payload: message.payload.room });
@@ -140,36 +153,33 @@ export function GameProvider({ children }: GameProviderProps) {
   };
 
   const createRoom = (nickname: string) => {
-    const { room, moderatorId } = websocketService.createRoom(nickname);
-    const moderator = room.players.find(p => p.id === moderatorId)!;
-    
-    dispatch({ type: 'SET_PLAYER', payload: { player: moderator, isModerator: true } });
-    dispatch({ type: 'SET_ROOM', payload: room });
+    try {
+      socketService.createRoom(nickname);
+      // Room and player data will be set via WebSocket events
+    } catch (error) {
+      alert('Error al crear sala: ' + (error as Error).message);
+    }
   };
 
   const joinRoom = (roomCode: string, nickname: string) => {
-    const result = websocketService.joinRoom(roomCode, nickname);
-    
-    if (result.success && result.room && result.playerId) {
-      const player = result.room.players.find(p => p.id === result.playerId)!;
-      
-      dispatch({ type: 'SET_PLAYER', payload: { player, isModerator: false } });
-      dispatch({ type: 'SET_ROOM', payload: result.room });
-    } else {
-      alert(result.error || 'Error al unirse a la sala');
+    try {
+      socketService.joinRoom(roomCode, nickname);
+      // Room and player data will be set via WebSocket events
+    } catch (error) {
+      alert('Error al unirse a la sala: ' + (error as Error).message);
     }
   };
 
   const leaveRoom = () => {
     if (state.currentPlayer) {
-      websocketService.leaveRoom(state.currentPlayer.id);
+      socketService.leaveRoom(state.currentPlayer.id);
       dispatch({ type: 'RESET_GAME' });
     }
   };
 
   const addQuestion = (question: Omit<Question, 'id'>) => {
     if (state.currentPlayer) {
-      const result = websocketService.addQuestion(state.currentPlayer.id, question);
+      const result = socketService.addQuestion(state.currentPlayer.id, question);
       if (!result.success) {
         alert(result.error || 'Error al agregar pregunta');
       }
@@ -178,7 +188,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
   const startQuestion = () => {
     if (state.currentPlayer) {
-      const result = websocketService.startQuestion(state.currentPlayer.id);
+      const result = socketService.startQuestion(state.currentPlayer.id);
       if (!result.success) {
         alert(result.error || 'Error al iniciar pregunta');
       }
@@ -187,7 +197,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
   const endQuestion = () => {
     if (state.currentPlayer) {
-      const result = websocketService.endQuestion(state.currentPlayer.id);
+      const result = socketService.endQuestion(state.currentPlayer.id);
       if (!result.success) {
         alert(result.error || 'Error al finalizar pregunta');
       }
@@ -196,7 +206,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
   const submitAnswer = (selectedOption: number) => {
     if (state.currentPlayer) {
-      const result = websocketService.submitAnswer(state.currentPlayer.id, selectedOption);
+      const result = socketService.submitAnswer(state.currentPlayer.id, selectedOption);
       if (!result.success) {
         alert(result.error || 'Error al enviar respuesta');
       }
