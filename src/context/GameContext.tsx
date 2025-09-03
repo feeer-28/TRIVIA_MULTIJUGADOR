@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { GameState, Player, Room, Question, WebSocketMessage } from '../types';
-import { socketService } from '../services/socketService';
+import { websocketService } from '../services/websocketService';
 
 interface GameContextType {
   state: GameState;
@@ -83,34 +83,21 @@ export function GameProvider({ children }: GameProviderProps) {
   const [state, dispatch] = useReducer(gameReducer, initialState);
 
   useEffect(() => {
-    // Connect to socket server on mount
-    socketService.connect();
-    
-    // Subscribe with a generic ID initially
-    const subscriptionId = 'game-context';
-    socketService.subscribe(subscriptionId, handleWebSocketMessage);
-    
-    return () => {
-      socketService.unsubscribe(subscriptionId);
-      socketService.disconnect();
-    };
-  }, []);
+    if (state.currentPlayer) {
+      websocketService.subscribe(state.currentPlayer.id, handleWebSocketMessage);
+      
+      return () => {
+        if (state.currentPlayer) {
+          websocketService.unsubscribe(state.currentPlayer.id);
+        }
+      };
+    }
+  }, [state.currentPlayer]);
 
   const handleWebSocketMessage = (message: WebSocketMessage) => {
     switch (message.type) {
       case 'ROOM_CREATED':
-        const room = message.payload.room;
-        dispatch({ type: 'SET_ROOM', payload: room });
-        
-        // Set current player from room data
-        const currentPlayerId = socketService.getCurrentPlayerId();
-        if (currentPlayerId) {
-          const player = room.players.find(p => p.id === currentPlayerId);
-          if (player) {
-            const isModerator = player.id === room.moderatorId;
-            dispatch({ type: 'SET_PLAYER', payload: { player, isModerator } });
-          }
-        }
+        dispatch({ type: 'SET_ROOM', payload: message.payload.room });
         break;
       case 'PLAYER_JOINED':
         dispatch({ type: 'SET_ROOM', payload: message.payload.room });
@@ -153,53 +140,66 @@ export function GameProvider({ children }: GameProviderProps) {
   };
 
   const createRoom = (nickname: string) => {
-    try {
-      socketService.createRoom(nickname);
-      // Room and player data will be set via WebSocket events
-    } catch (error) {
-      alert('Error al crear sala: ' + (error as Error).message);
-    }
+    const { room, moderatorId } = websocketService.createRoom(nickname);
+    const moderator = room.players.find(p => p.id === moderatorId)!;
+    
+    dispatch({ type: 'SET_PLAYER', payload: { player: moderator, isModerator: true } });
+    dispatch({ type: 'SET_ROOM', payload: room });
   };
 
   const joinRoom = (roomCode: string, nickname: string) => {
-    try {
-      socketService.joinRoom(roomCode, nickname);
-      // Room and player data will be set via WebSocket events
-    } catch (error) {
-      alert('Error al unirse a la sala: ' + (error as Error).message);
+    const result = websocketService.joinRoom(roomCode, nickname);
+    
+    if (result.success && result.room && result.playerId) {
+      const player = result.room.players.find(p => p.id === result.playerId)!;
+      
+      dispatch({ type: 'SET_PLAYER', payload: { player, isModerator: false } });
+      dispatch({ type: 'SET_ROOM', payload: result.room });
+    } else {
+      alert(result.error || 'Error al unirse a la sala');
     }
   };
 
   const leaveRoom = () => {
-    socketService.leaveRoom();
-    dispatch({ type: 'RESET_GAME' });
+    if (state.currentPlayer) {
+      websocketService.leaveRoom(state.currentPlayer.id);
+      dispatch({ type: 'RESET_GAME' });
+    }
   };
 
   const addQuestion = (question: Omit<Question, 'id'>) => {
-    const result = socketService.addQuestion(question);
-    if (!result.success) {
-      alert(result.error || 'Error al agregar pregunta');
+    if (state.currentPlayer) {
+      const result = websocketService.addQuestion(state.currentPlayer.id, question);
+      if (!result.success) {
+        alert(result.error || 'Error al agregar pregunta');
+      }
     }
   };
 
   const startQuestion = () => {
-    const result = socketService.startQuestion();
-    if (!result.success) {
-      alert(result.error || 'Error al iniciar pregunta');
+    if (state.currentPlayer) {
+      const result = websocketService.startQuestion(state.currentPlayer.id);
+      if (!result.success) {
+        alert(result.error || 'Error al iniciar pregunta');
+      }
     }
   };
 
   const endQuestion = () => {
-    const result = socketService.endQuestion();
-    if (!result.success) {
-      alert(result.error || 'Error al finalizar pregunta');
+    if (state.currentPlayer) {
+      const result = websocketService.endQuestion(state.currentPlayer.id);
+      if (!result.success) {
+        alert(result.error || 'Error al finalizar pregunta');
+      }
     }
   };
 
   const submitAnswer = (selectedOption: number) => {
-    const result = socketService.submitAnswer(selectedOption);
-    if (!result.success) {
-      alert(result.error || 'Error al enviar respuesta');
+    if (state.currentPlayer) {
+      const result = websocketService.submitAnswer(state.currentPlayer.id, selectedOption);
+      if (!result.success) {
+        alert(result.error || 'Error al enviar respuesta');
+      }
     }
   };
 
