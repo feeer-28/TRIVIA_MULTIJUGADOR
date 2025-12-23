@@ -1,422 +1,221 @@
-import type { Room, Player, Question, Answer, WebSocketMessage } from '../types';
+import type { Room, Question, WebSocketMessage } from '../types';
+import io, { Socket } from 'socket.io-client';
 
 class WebSocketService {
-  private static instance: WebSocketService;
-  private rooms: Map<string, Room> = new Map();
+  private socket!: Socket;
   private listeners: Map<string, (message: WebSocketMessage) => void> = new Map();
-  private playerRooms: Map<string, string> = new Map();
-  private broadcastChannel!: BroadcastChannel;
+  private currentPlayerId: string = '';
 
   constructor() {
-    if (WebSocketService.instance) {
-      return WebSocketService.instance;
+    if ((window as any).__triviaWebSocketService) {
+      return (window as any).__triviaWebSocketService;
     }
 
-    // Load rooms from localStorage on initialization
-    this.loadRoomsFromStorage();
+    console.log('Initializing WebSocket Service');
     
-    // Create BroadcastChannel for cross-tab communication
-    this.broadcastChannel = new BroadcastChannel('trivia-game');
+    // Connect to server
+    const serverUrl = import.meta.env.DEV 
+      ? 'http://localhost:3001' 
+      : window.location.origin;
     
-    // Listen for messages from other tabs
-    this.broadcastChannel.addEventListener('message', (event) => {
-        this.handleCrossTabMessage(event.data);
-    });
+    console.log('Connecting to server:', serverUrl);
     
-    // Listen for storage changes from other tabs/windows (fallback)
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'trivia-rooms') {
-        this.loadRoomsFromStorage();
-      }
+    this.socket = io(serverUrl, {
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: 5
     });
 
-    WebSocketService.instance = this;
+    this.setupSocketListeners();
+    (window as any).__triviaWebSocketService = this;
   }
 
-  private handleCrossTabMessage(data: any) {
-    if (data.type === 'WEBSOCKET_MESSAGE') {
-      const { playerId, message } = data;
-      if (this.listeners.has(playerId)) {
-        const callback = this.listeners.get(playerId)!;
-        callback(message);
-      }
-    } else if (data.type === 'RELOAD_ROOMS') {
-      this.loadRoomsFromStorage();
-    }
-  }
+  private setupSocketListeners() {
+    this.socket.on('connect', () => {
+      console.log('✓ Connected to WebSocket server:', this.socket.id);
+    });
 
-  // Generate unique room code
-  private generateRoomCode(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = '';
-    for (let i = 0; i < 4; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
-  }
+    this.socket.on('disconnect', () => {
+      console.log('✗ Disconnected from WebSocket server');
+    });
 
-  // Generate unique ID
-  private generateId(): string {
-    return Math.random().toString(36).substr(2, 9);
-  }
-
-  // Load rooms from localStorage
-  private loadRoomsFromStorage(): void {
-    try {
-      // Clear existing rooms first
-      this.rooms.clear();
-      
-      const storedRooms = localStorage.getItem('trivia-rooms');
-        if (storedRooms) {
-        const roomsData = JSON.parse(storedRooms);
-        Object.entries(roomsData).forEach(([code, roomData]: [string, any]) => {
-          // Convert date strings back to Date objects
-          const room: Room = {
-            ...roomData,
-            createdAt: new Date(roomData.createdAt)
-          };
-          this.rooms.set(code, room);
+    this.socket.on('roomCreated', (data: any) => {
+      console.log('Received roomCreated:', data);
+      const callback = this.listeners.get(data.moderatorId);
+      if (callback) {
+        callback({
+          type: 'ROOM_CREATED',
+          payload: { room: data.room }
         });
       }
-    } catch (error) {
-      console.warn('Error loading rooms from storage:', error);
-    }
+    });
+
+    this.socket.on('playerJoined', (data: any) => {
+      console.log('Received playerJoined:', data);
+      const callback = this.listeners.get(this.currentPlayerId);
+      if (callback) {
+        callback({
+          type: 'PLAYER_JOINED',
+          payload: { player: data.player, room: data.room }
+        });
+      }
+    });
+
+    this.socket.on('playerLeft', (data: any) => {
+      const callback = this.listeners.get(this.currentPlayerId);
+      if (callback) {
+        callback({
+          type: 'PLAYER_LEFT',
+          payload: { playerId: data.playerId, room: data.room }
+        });
+      }
+    });
+
+    this.socket.on('questionStarted', (data: any) => {
+      const callback = this.listeners.get(this.currentPlayerId);
+      if (callback) {
+        callback({
+          type: 'QUESTION_STARTED',
+          payload: { question: data.question, timeLimit: data.timeLimit }
+        });
+      }
+    });
+
+    this.socket.on('questionEnded', (data: any) => {
+      const callback = this.listeners.get(this.currentPlayerId);
+      if (callback) {
+        callback({
+          type: 'QUESTION_ENDED',
+          payload: { results: data.results, scores: data.scores }
+        });
+      }
+    });
+
+    this.socket.on('gameFinished', (data: any) => {
+      const callback = this.listeners.get(this.currentPlayerId);
+      if (callback) {
+        callback({
+          type: 'GAME_FINISHED',
+          payload: { finalScores: data.finalScores }
+        });
+      }
+    });
+
+    this.socket.on('error', (data: any) => {
+      console.error('Server error:', data.message);
+      const callback = this.listeners.get(this.currentPlayerId);
+      if (callback) {
+        callback({
+          type: 'ERROR',
+          payload: { message: data.message }
+        });
+      }
+    });
   }
 
-  // Save rooms to localStorage
-  private saveRoomsToStorage(): void {
-    try {
-      const roomsData: Record<string, Room> = {};
-      this.rooms.forEach((room, code) => {
-        roomsData[code] = room;
-      });
-      localStorage.setItem('trivia-rooms', JSON.stringify(roomsData));
-      
-      // Notify other tabs to reload rooms
-      this.broadcastChannel.postMessage({
-        type: 'RELOAD_ROOMS'
-      });
-    } catch (error) {
-      console.warn('Error saving rooms to storage:', error);
+  public static getInstance(): WebSocketService {
+    if ((window as any).__triviaWebSocketService) {
+      return (window as any).__triviaWebSocketService;
     }
+    return new WebSocketService();
   }
 
-  // Subscribe to messages
   subscribe(playerId: string, callback: (message: WebSocketMessage) => void): void {
+    this.currentPlayerId = playerId;
     this.listeners.set(playerId, callback);
   }
 
-  // Unsubscribe from messages
   unsubscribe(playerId: string): void {
     this.listeners.delete(playerId);
-    this.playerRooms.delete(playerId);
   }
 
-  // Broadcast message to all players in a room
-  private broadcast(roomCode: string, message: WebSocketMessage, excludePlayerId?: string): void {
-    const room = this.rooms.get(roomCode);
-    if (!room) {
-      console.error('Broadcast: Room not found:', roomCode);
-      return;
-    }
+  async createRoom(moderatorNickname: string): Promise<{ room: Room; moderatorId: string }> {
+    return new Promise((resolve, reject) => {
+      const onRoomCreated = (data: any) => {
+        this.socket.off('roomCreated', onRoomCreated);
+        this.currentPlayerId = data.moderatorId;
+        resolve({ room: data.room, moderatorId: data.moderatorId });
+      };
 
-    room.players.forEach(player => {
-      if (player.id !== excludePlayerId) {
-        // Send to local listener if available
-        if (this.listeners.has(player.id)) {
-          const callback = this.listeners.get(player.id)!;
-          setTimeout(() => callback(message), 50);
-        }
-        
-        // Also broadcast to other tabs via BroadcastChannel
-        this.broadcastChannel.postMessage({
-          type: 'WEBSOCKET_MESSAGE',
-          playerId: player.id,
-          message: message
+      const onError = (data: any) => {
+        this.socket.off('roomCreated', onRoomCreated);
+        this.socket.off('error', onError);
+        reject(new Error(data.message));
+      };
+
+      this.socket.once('roomCreated', onRoomCreated);
+      this.socket.once('error', onError);
+      this.socket.emit('createRoom', { moderatorNickname });
+    });
+  }
+
+  async joinRoom(roomCode: string, playerNickname: string): Promise<{ success: boolean; room?: Room; playerId?: string; error?: string }> {
+    return new Promise((resolve) => {
+      const onRoomJoined = (data: any) => {
+        this.socket.off('roomJoined', onRoomJoined);
+        this.socket.off('error', onError);
+        this.currentPlayerId = data.playerId;
+        resolve({ 
+          success: true, 
+          room: data.room, 
+          playerId: data.playerId 
         });
-      }
+      };
+
+      const onError = (data: any) => {
+        this.socket.off('roomJoined', onRoomJoined);
+        this.socket.off('error', onError);
+        resolve({ 
+          success: false, 
+          error: data.message 
+        });
+      };
+
+      this.socket.once('roomJoined', onRoomJoined);
+      this.socket.once('error', onError);
+      this.socket.emit('joinRoom', { roomCode: roomCode.toUpperCase(), playerNickname });
     });
   }
 
-  // Send message to specific player
-  private sendToPlayer(playerId: string, message: WebSocketMessage): void {
-    if (this.listeners.has(playerId)) {
-      const callback = this.listeners.get(playerId)!;
-      setTimeout(() => callback(message), 50);
-    }
-  }
-
-  // Create a new room
-  createRoom(moderatorNickname: string): { room: Room; moderatorId: string } {
-    const moderatorId = this.generateId();
-    const roomCode = this.generateRoomCode();
-    
-    
-    const moderator: Player = {
-      id: moderatorId,
-      nickname: moderatorNickname,
-      score: 0,
-      isConnected: true
-    };
-
-    const room: Room = {
-      id: this.generateId(),
-      code: roomCode,
-      moderatorId,
-      players: [moderator],
-      questions: [],
-      currentQuestionIndex: -1,
-      isGameStarted: false,
-      isGameFinished: false,
-      createdAt: new Date()
-    };
-
-    this.rooms.set(roomCode, room);
-    this.playerRooms.set(moderatorId, roomCode);
-    this.saveRoomsToStorage();
-
-    
-
-    this.sendToPlayer(moderatorId, {
-      type: 'ROOM_CREATED',
-      payload: { room }
-    });
-
-    return { room, moderatorId };
-  }
-
-  // Join a room
-  joinRoom(roomCode: string, playerNickname: string): { success: boolean; room?: Room; playerId?: string; error?: string } {
-    
-    const room = this.rooms.get(roomCode);
-    
-    if (!room) {
-      console.error('Room not found:', roomCode);
-      return { success: false, error: 'Sala no encontrada' };
-    }
-
-    if (room.isGameStarted) {
-      return { success: false, error: 'El juego ya ha comenzado' };
-    }
-
-    // Check if nickname is already taken
-    if (room.players.some(p => p.nickname === playerNickname)) {
-      return { success: false, error: 'El nickname ya está en uso' };
-    }
-
-    const playerId = this.generateId();
-    const player: Player = {
-      id: playerId,
-      nickname: playerNickname,
-      score: 0,
-      isConnected: true
-    };
-
-    room.players.push(player);
-    this.playerRooms.set(playerId, roomCode);
-    this.saveRoomsToStorage();
-
-
-    // Notify all players about the new player
-    this.broadcast(roomCode, {
-      type: 'PLAYER_JOINED',
-      payload: { player, room }
-    });
-
-    return { success: true, room, playerId };
-  }
-
-  // Leave room
   leaveRoom(playerId: string): void {
-    const roomCode = this.playerRooms.get(playerId);
-    if (!roomCode) return;
-
-    const room = this.rooms.get(roomCode);
-    if (!room) return;
-
-    // Remove player from room
-    room.players = room.players.filter(p => p.id !== playerId);
-    
-    // If moderator leaves, end the game
-    if (playerId === room.moderatorId) {
-      this.broadcast(roomCode, {
-        type: 'ERROR',
-        payload: { message: 'El moderador ha abandonado la sala' }
-      });
-      this.rooms.delete(roomCode);
-      this.saveRoomsToStorage();
-      return;
-    }
-
-    // Notify remaining players
-    this.broadcast(roomCode, {
-      type: 'PLAYER_LEFT',
-      payload: { playerId, room }
-    });
-
-    this.playerRooms.delete(playerId);
-    this.saveRoomsToStorage();
+    this.socket.emit('leaveRoom', { playerId });
   }
 
-  // Add question (moderator only)
-  addQuestion(playerId: string, question: Omit<Question, 'id'>): { success: boolean; error?: string } {
-    const roomCode = this.playerRooms.get(playerId);
-    if (!roomCode) return { success: false, error: 'No estás en una sala' };
-
-    const room = this.rooms.get(roomCode);
-    if (!room) return { success: false, error: 'Sala no encontrada' };
-
-    if (room.moderatorId !== playerId) {
-      return { success: false, error: 'Solo el moderador puede agregar preguntas' };
-    }
-
-    if (room.isGameStarted) {
-      return { success: false, error: 'No se pueden agregar preguntas durante el juego' };
-    }
-
-    const newQuestion: Question = {
-      ...question,
-      id: this.generateId()
-    };
-
-    room.questions.push(newQuestion);
-    this.saveRoomsToStorage();
+  addQuestion(_playerId: string, question: Omit<Question, 'id'>): { success: boolean; error?: string } {
+    this.socket.emit('addQuestion', { question });
     return { success: true };
   }
 
-  // Start question (moderator only)
-  startQuestion(playerId: string): { success: boolean; error?: string } {
-    const roomCode = this.playerRooms.get(playerId);
-    if (!roomCode) return { success: false, error: 'No estás en una sala' };
-
-    const room = this.rooms.get(roomCode);
-    if (!room) return { success: false, error: 'Sala no encontrada' };
-
-    if (room.moderatorId !== playerId) {
-      return { success: false, error: 'Solo el moderador puede iniciar preguntas' };
-    }
-
-    if (room.questions.length === 0) {
-      return { success: false, error: 'No hay preguntas disponibles' };
-    }
-
-    const nextIndex = room.currentQuestionIndex + 1;
-    if (nextIndex >= room.questions.length) {
-      return { success: false, error: 'No hay más preguntas' };
-    }
-
-    room.currentQuestionIndex = nextIndex;
-    room.isGameStarted = true;
-    const currentQuestion = room.questions[nextIndex];
-    this.saveRoomsToStorage();
-
-    // Broadcast question to all players
-    this.broadcast(roomCode, {
-      type: 'QUESTION_STARTED',
-      payload: { question: currentQuestion, timeLimit: currentQuestion.timeLimit }
-    });
-
-    // Auto-end question after time limit
-    setTimeout(() => {
-      this.endQuestion(playerId);
-    }, currentQuestion.timeLimit * 1000);
-
+  startQuestion(_playerId: string): { success: boolean; error?: string } {
+    this.socket.emit('startQuestion', {});
     return { success: true };
   }
 
-  // Submit answer
-  submitAnswer(playerId: string, selectedOption: number): { success: boolean; error?: string } {
-    const roomCode = this.playerRooms.get(playerId);
-    if (!roomCode) return { success: false, error: 'No estás en una sala' };
-
-    const room = this.rooms.get(roomCode);
-    if (!room) return { success: false, error: 'Sala no encontrada' };
-
-    if (room.currentQuestionIndex < 0) {
-      return { success: false, error: 'No hay pregunta activa' };
-    }
-
-    const currentQuestion = room.questions[room.currentQuestionIndex];
-    const isCorrect = selectedOption === currentQuestion.correctAnswer;
-
-    // Update player score
-    if (isCorrect) {
-      const player = room.players.find(p => p.id === playerId);
-      if (player) {
-        player.score += currentQuestion.points;
-        this.saveRoomsToStorage();
-      }
-    }
-
-    const answer: Answer = {
-      playerId,
-      questionId: currentQuestion.id,
-      selectedOption,
-      timestamp: new Date(),
-      isCorrect
-    };
-
-    // Store answer (in a real app, you'd have a separate answers storage)
-    // For now, we'll just broadcast it
-    this.broadcast(roomCode, {
-      type: 'ANSWER_SUBMITTED',
-      payload: { answer }
-    });
-
+  endQuestion(_playerId: string): { success: boolean; error?: string } {
+    this.socket.emit('endQuestion', {});
     return { success: true };
   }
 
-  // End current question (moderator only)
-  endQuestion(playerId: string): { success: boolean; error?: string } {
-    const roomCode = this.playerRooms.get(playerId);
-    if (!roomCode) return { success: false, error: 'No estás en una sala' };
-
-    const room = this.rooms.get(roomCode);
-    if (!room) return { success: false, error: 'Sala no encontrada' };
-
-    if (room.moderatorId !== playerId) {
-      return { success: false, error: 'Solo el moderador puede finalizar preguntas' };
-    }
-
-    if (room.currentQuestionIndex < 0) {
-      return { success: false, error: 'No hay pregunta activa' };
-    }
-
-    // Check if this was the last question
-    const isLastQuestion = room.currentQuestionIndex >= room.questions.length - 1;
-
-    if (isLastQuestion) {
-      room.isGameFinished = true;
-      this.saveRoomsToStorage();
-      // Broadcast final results
-      this.broadcast(roomCode, {
-        type: 'GAME_FINISHED',
-        payload: { finalScores: [...room.players].sort((a, b) => b.score - a.score) }
-      });
-    } else {
-      // Broadcast current results
-      this.broadcast(roomCode, {
-        type: 'QUESTION_ENDED',
-        payload: { 
-          results: [], // In a real app, you'd collect all answers for this question
-          scores: [...room.players].sort((a, b) => b.score - a.score)
-        }
-      });
-    }
-
+  submitAnswer(_playerId: string, selectedOption: number): { success: boolean; error?: string } {
+    this.socket.emit('submitAnswer', { selectedOption });
     return { success: true };
   }
 
-  // Get room by code
-  getRoom(roomCode: string): Room | null {
-    return this.rooms.get(roomCode) || null;
+  getRoom(_roomCode: string): Room | null {
+    return null; // Not needed with server
   }
 
-  // Get room by player ID
-  getRoomByPlayerId(playerId: string): Room | null {
-    const roomCode = this.playerRooms.get(playerId);
-    if (!roomCode) return null;
-    return this.rooms.get(roomCode) || null;
+  getRoomByPlayerId(_playerId: string): Room | null {
+    return null; // Not needed with server
+  }
+
+  public loadRoomsFromStorage(): void {
+    // Handled by server
+  }
+
+  public saveRoomsToStorage(): void {
+    // Handled by server
   }
 }
 

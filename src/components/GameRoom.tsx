@@ -159,19 +159,32 @@ export function GameRoom({ onGameEnd }: GameRoomProps) {
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
             <div>
-              <h1 className="text-2xl font-bold text-gray-800">🧠 Trivia en Vivo</h1>
+              <h1 className="text-2xl font-bold text-gray-800 flex items-center">
+                <span className="mr-2">🧠</span>
+                Trivia en Vivo
+                {hasAnswered && <span className="ml-3 text-green-600">✅</span>}
+              </h1>
               <p className="text-gray-600">Sala: {state.currentRoom?.code}</p>
             </div>
             <div className="text-right">
-              <div className="text-3xl font-bold text-indigo-600">
+              <div className={`text-3xl font-bold transition-colors ${
+                state.timeRemaining <= 5 ? 'text-red-500' : 'text-indigo-600'
+              }`}>
                 {formatTime(state.timeRemaining)}
               </div>
               <div className="w-24 h-2 bg-gray-200 rounded-full mt-1">
                 <div 
-                  className="h-full bg-indigo-600 rounded-full transition-all duration-1000"
-                  style={{ width: `${100 - (state.timeRemaining / state.currentQuestion.timeLimit * 100)}%` }}
+                  className={`h-full rounded-full transition-all duration-1000 ${
+                    state.timeRemaining <= 5 ? 'bg-red-500' : 'bg-indigo-600'
+                  }`}
+                  style={{ width: `${Math.max(0, 100 - ((state.currentQuestion?.timeLimit - state.timeRemaining) / state.currentQuestion?.timeLimit * 100))}%` }}
                 ></div>
               </div>
+              {state.timeRemaining <= 5 && (
+                <p className="text-xs text-red-500 mt-1 font-semibold animate-pulse">
+                  ¡Tiempo agotándose!
+                </p>
+              )}
             </div>
           </div>
 
@@ -216,25 +229,29 @@ export function GameRoom({ onGameEnd }: GameRoomProps) {
           </div>
 
           {/* Submit Button */}
-          {!hasAnswered && (
-            <div className="text-center">
+          <div className="text-center">
+            {!hasAnswered ? (
               <button
                 onClick={handleAnswerSubmit}
                 disabled={selectedOption === null}
-                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white font-semibold py-3 px-8 rounded-xl transition-colors duration-200"
+                className={`font-bold py-4 px-8 rounded-xl transition-all duration-200 ${
+                  selectedOption !== null
+                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
               >
-                Enviar Respuesta
+                {selectedOption !== null ? '🚀 Confirmar Respuesta' : '⚪ Selecciona una opción'}
               </button>
-            </div>
-          )}
-
-          {hasAnswered && (
-            <div className="text-center">
-              <div className="bg-green-100 text-green-800 py-3 px-6 rounded-xl inline-block">
-                ✅ Respuesta enviada
+            ) : (
+              <div className="bg-green-100 border border-green-400 text-green-700 px-6 py-4 rounded-xl">
+                <div className="flex items-center justify-center">
+                  <span className="mr-2">✅</span>
+                  <span className="font-semibold">¡Respuesta enviada!</span>
+                </div>
+                <p className="text-sm mt-1">Esperando a los demás jugadores...</p>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Moderator Controls */}
           {state.isModerator && (

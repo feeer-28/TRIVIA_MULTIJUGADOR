@@ -1,17 +1,23 @@
 import { useState } from 'react';
 import { GameProvider, useGame } from './context/GameContext';
+import { LandingPage } from './components/LandingPage';
 import { Home } from './components/Home';
 import { CreateRoom } from './components/CreateRoom';
 import { JoinRoom } from './components/JoinRoom';
+import { WaitingRoom } from './components/WaitingRoom';
 import { QuestionCreator } from './components/QuestionCreator';
 import { GameRoom } from './components/GameRoom';
 import { VictoryScreen } from './components/VictoryScreen';
 
-type AppState = 'home' | 'create-room' | 'join-room' | 'question-creator' | 'waiting-room' | 'game-room' | 'victory';
+type AppState = 'landing' | 'home' | 'create-room' | 'join-room' | 'question-creator' | 'waiting-room' | 'game-room' | 'victory';
 
 function AppContent() {
-  const [currentState, setCurrentState] = useState<AppState>('home');
+  const [currentState, setCurrentState] = useState<AppState>('landing');
   const { leaveRoom, state } = useGame();
+
+  const handleEnterGame = () => {
+    setCurrentState('home');
+  };
 
   const handleCreateRoom = () => {
     setCurrentState('create-room');
@@ -22,11 +28,15 @@ function AppContent() {
   };
 
   const handleRoomCreated = () => {
-    setCurrentState('question-creator');
+    setCurrentState('waiting-room');
   };
 
   const handleRoomJoined = () => {
     setCurrentState('waiting-room');
+  };
+
+  const handleStartQuestionCreator = () => {
+    setCurrentState('question-creator');
   };
 
   const handleStartGame = () => {
@@ -57,6 +67,9 @@ function AppContent() {
   };
 
   switch (currentState) {
+    case 'landing':
+      return <LandingPage onEnter={handleEnterGame} />;
+    
     case 'home':
       return <Home onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} />;
     
@@ -66,6 +79,9 @@ function AppContent() {
     case 'join-room':
       return <JoinRoom onBack={handleBack} onRoomJoined={handleRoomJoined} />;
     
+    case 'waiting-room':
+      return <WaitingRoom onBack={handleBack} onStartGame={handleStartQuestionCreator} />;
+    
     case 'question-creator':
       return (
         <QuestionCreator 
@@ -74,9 +90,7 @@ function AppContent() {
         />
       );
     
-    case 'waiting-room':
-      return <GameRoom onGameEnd={handleGameEnd} />;
-    
+
     case 'game-room':
       return <GameRoom onGameEnd={handleGameEnd} />;
     

@@ -9,18 +9,24 @@ interface CreateRoomProps {
 export function CreateRoom({ onBack, onRoomCreated }: CreateRoomProps) {
   const [nickname, setNickname] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const { createRoom } = useGame();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nickname.trim()) return;
 
     setIsLoading(true);
+    setError('');
+    
     try {
-      createRoom(nickname.trim());
+      console.log('CreateRoom: Creating room with moderator:', nickname.trim());
+      await createRoom(nickname.trim());
+      console.log('CreateRoom: Room created successfully');
       onRoomCreated();
-    } catch (error) {
-      console.error('Error creating room:', error);
+    } catch (error: any) {
+      console.error('CreateRoom: Error creating room:', error);
+      setError(error.message || 'Error al crear la sala');
     } finally {
       setIsLoading(false);
     }
@@ -35,6 +41,12 @@ export function CreateRoom({ onBack, onRoomCreated }: CreateRoomProps) {
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl">
+              <span className="block sm:inline">{error}</span>
+            </div>
+          )}
+          
           <div>
             <label htmlFor="nickname" className="block text-sm font-medium text-gray-700 mb-2">
               Tu Nickname
@@ -43,7 +55,10 @@ export function CreateRoom({ onBack, onRoomCreated }: CreateRoomProps) {
               type="text"
               id="nickname"
               value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
+              onChange={(e) => {
+                setNickname(e.target.value);
+                if (error) setError('');
+              }}
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
               placeholder="Ingresa tu nickname"
               maxLength={20}

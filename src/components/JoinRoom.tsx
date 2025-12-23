@@ -10,18 +10,24 @@ export function JoinRoom({ onBack, onRoomJoined }: JoinRoomProps) {
   const [roomCode, setRoomCode] = useState('');
   const [nickname, setNickname] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const { joinRoom } = useGame();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomCode.trim() || !nickname.trim()) return;
 
     setIsLoading(true);
+    setError('');
+    
     try {
-      joinRoom(roomCode.trim().toUpperCase(), nickname.trim());
+      console.log('JoinRoom: Attempting to join room:', roomCode.trim().toUpperCase());
+      await joinRoom(roomCode.trim().toUpperCase(), nickname.trim());
+      console.log('JoinRoom: Successfully joined room');
       onRoomJoined();
-    } catch (error) {
-      console.error('Error joining room:', error);
+    } catch (error: any) {
+      console.error('JoinRoom: Error joining room:', error);
+      setError(error.message || 'Error al unirse a la sala');
     } finally {
       setIsLoading(false);
     }
@@ -36,6 +42,12 @@ export function JoinRoom({ onBack, onRoomJoined }: JoinRoomProps) {
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl">
+              <span className="block sm:inline">{error}</span>
+            </div>
+          )}
+          
           <div>
             <label htmlFor="roomCode" className="block text-sm font-medium text-gray-700 mb-2">
               Código de Sala
@@ -44,7 +56,10 @@ export function JoinRoom({ onBack, onRoomJoined }: JoinRoomProps) {
               type="text"
               id="roomCode"
               value={roomCode}
-              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+              onChange={(e) => {
+                setRoomCode(e.target.value.toUpperCase());
+                if (error) setError('');
+              }}
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all text-center text-lg font-mono tracking-wider"
               placeholder="AB12"
               maxLength={4}
@@ -60,7 +75,10 @@ export function JoinRoom({ onBack, onRoomJoined }: JoinRoomProps) {
               type="text"
               id="nickname"
               value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
+              onChange={(e) => {
+                setNickname(e.target.value);
+                if (error) setError('');
+              }}
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
               placeholder="Ingresa tu nickname"
               maxLength={20}

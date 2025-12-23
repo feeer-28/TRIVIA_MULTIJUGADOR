@@ -2,6 +2,7 @@ import { createContext, useContext, useReducer, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { GameState, Player, Room, Question, WebSocketMessage } from '../types';
 import { websocketService } from '../services/websocketService';
+import { useSyncWebSocket } from '../hooks/useSyncWebSocket';
 
 interface GameContextType {
   state: GameState;
@@ -81,6 +82,9 @@ interface GameProviderProps {
 
 export function GameProvider({ children }: GameProviderProps) {
   const [state, dispatch] = useReducer(gameReducer, initialState);
+  
+  // Sincronizar con cambios de localStorage
+  useSyncWebSocket();
 
   useEffect(() => {
     if (state.currentPlayer) {
@@ -95,11 +99,15 @@ export function GameProvider({ children }: GameProviderProps) {
   }, [state.currentPlayer]);
 
   const handleWebSocketMessage = (message: WebSocketMessage) => {
+    console.log('GameContext: Received message:', message);
+    
     switch (message.type) {
       case 'ROOM_CREATED':
+        console.log('GameContext: Room created, updating state');
         dispatch({ type: 'SET_ROOM', payload: message.payload.room });
         break;
       case 'PLAYER_JOINED':
+        console.log('GameContext: Player joined, updating room state');
         dispatch({ type: 'SET_ROOM', payload: message.payload.room });
         break;
       case 'PLAYER_LEFT':
@@ -139,24 +147,32 @@ export function GameProvider({ children }: GameProviderProps) {
     }, 1000);
   };
 
-  const createRoom = (nickname: string) => {
-    const { room, moderatorId } = websocketService.createRoom(nickname);
-    const moderator = room.players.find(p => p.id === moderatorId)!;
+  const createRoom = async (nickname: string) => {
+    console.log('GameContext: Creating room with moderator:', nickname);
+    const { room, moderatorId } = await websocketService.createRoom(nickname);
+    const moderator = room.players.find((p: any) => p.id === moderatorId)!;
     
+    console.log('GameContext: Room created successfully:', room.code);
     dispatch({ type: 'SET_PLAYER', payload: { player: moderator, isModerator: true } });
     dispatch({ type: 'SET_ROOM', payload: room });
   };
 
-  const joinRoom = (roomCode: string, nickname: string) => {
-    const result = websocketService.joinRoom(roomCode, nickname);
+  const joinRoom = async (roomCode: string, nickname: string) => {
+    console.log('GameContext: Attempting to join room', roomCode, 'with nickname', nickname);
+    const result = await websocketService.joinRoom(roomCode, nickname);
+    
+    console.log('GameContext: Join room result:', result);
     
     if (result.success && result.room && result.playerId) {
-      const player = result.room.players.find(p => p.id === result.playerId)!;
+      const player = result.room.players.find((p: any) => p.id === result.playerId)!;
       
+      console.log('GameContext: Player joined successfully:', player);
       dispatch({ type: 'SET_PLAYER', payload: { player, isModerator: false } });
       dispatch({ type: 'SET_ROOM', payload: result.room });
     } else {
+      console.error('GameContext: Failed to join room:', result.error);
       alert(result.error || 'Error al unirse a la sala');
+      throw new Error(result.error || 'Error al unirse a la sala');
     }
   };
 
